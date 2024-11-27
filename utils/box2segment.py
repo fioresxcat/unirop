@@ -126,7 +126,7 @@ def main():
         new_json_data['shapes'] = new_shapes
         new_json_data['imagePath'] = f'../images/{ip.name}'
         with open(os.path.join(out_dir, jp.name), 'w') as f:
-            json.dump(new_json_data, f)
+            json.dump(new_json_data, f, ensure_ascii=False)
         
         print(f'done {jp}')
     

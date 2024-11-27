@@ -73,37 +73,36 @@ def convert_CompHRDoc():
 
 
 def json2paddle():
-    im_dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/images'
-    json_dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/segment_jsons'
-    output_file = os.path.join(im_dir, 'Label.txt')
-    for jp in Path(json_dir).glob('*.json'):
+    im_dir = 'raw_data/VAT_data/images-test'
+    json_dir = 'raw_data/VAT_data/segment_jsons'
+
+    for ip in Path(im_dir).glob('*.jpg'):
+        jp = os.path.join(json_dir, ip.stem+'.json')
+        if not os.path.exists(jp):
+            continue
         with open(jp) as f:
             js_data = json.load(f)
         
         annos = []
         for shape in js_data['shapes']:
+            (xmin, ymin), (xmax, ymax) = shape['points']
             anno = {
                 "transcription": shape['text'],
-                "points": [
-                    [
-                        141,
-                        155
-                    ],
-                    [
-                        475,
-                        155
-                    ],
-                    [
-                        475,
-                        169
-                    ],
-                    [
-                        141,
-                        169
-                    ]
-                ],
-                "difficult": false
+                "points": [[xmin, ymin], [xmax, ymin], [xmax, ymax], [xmin, ymax]],
+                "difficult": False
             }
+            annos.append(anno)
+        
+        anno_str = json.dumps(annos, ensure_ascii=False)
+        line = f'{ip.parent.name}/{ip.name} {anno_str}\n'
+        with open(os.path.join(im_dir, 'Label.txt'), 'a') as f:
+            f.write(line)
+        
+        line = f'{ip.parent.name}/{ip.name}\t{anno_str}\n'
+        with open(os.path.join(im_dir, 'Cache.cach'), 'a') as f:
+            f.write(line)
+        
+        print(f'done {ip}')
     
 
 
@@ -121,5 +120,7 @@ def view_data():
 
 
 if __name__ == '__main__':
-    convert_CompHRDoc()
+    pass
+    # convert_CompHRDoc()
     # view_data()
+    json2paddle()
