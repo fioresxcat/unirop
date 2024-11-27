@@ -72,6 +72,41 @@ def convert_CompHRDoc():
         print(f'Delete {file}')
 
 
+def json2paddle():
+    im_dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/images'
+    json_dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/segment_jsons'
+    output_file = os.path.join(im_dir, 'Label.txt')
+    for jp in Path(json_dir).glob('*.json'):
+        with open(jp) as f:
+            js_data = json.load(f)
+        
+        annos = []
+        for shape in js_data['shapes']:
+            anno = {
+                "transcription": shape['text'],
+                "points": [
+                    [
+                        141,
+                        155
+                    ],
+                    [
+                        475,
+                        155
+                    ],
+                    [
+                        475,
+                        169
+                    ],
+                    [
+                        141,
+                        169
+                    ]
+                ],
+                "difficult": false
+            }
+    
+
+
 def view_data():
     ip = 'data/CompHRDoc_reduce/test/1808.07823_3.png'
     jp = 'data/CompHRDoc_reduce/test/1808.07823_3.json'

@@ -4,5 +4,7 @@ data
 model_output
 raw_data
 pretrained
+local_code
 test.jpg
+paper
 
