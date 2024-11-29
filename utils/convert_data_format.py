@@ -73,7 +73,7 @@ def convert_CompHRDoc():
 
 
 def json2paddle():
-    im_dir = 'raw_data/VAT_data/images-test'
+    im_dir = 'raw_data/VAT_data/images'
     json_dir = 'raw_data/VAT_data/segment_jsons'
 
     for ip in Path(im_dir).glob('*.jpg'):
@@ -94,12 +94,16 @@ def json2paddle():
             annos.append(anno)
         
         anno_str = json.dumps(annos, ensure_ascii=False)
-        line = f'{ip.parent.name}/{ip.name} {anno_str}\n'
+        line = f'{ip.parent.name}/{ip.name}\t{anno_str}\n'
         with open(os.path.join(im_dir, 'Label.txt'), 'a') as f:
             f.write(line)
         
         line = f'{ip.parent.name}/{ip.name}\t{anno_str}\n'
         with open(os.path.join(im_dir, 'Cache.cach'), 'a') as f:
+            f.write(line)
+        
+        line = f'{str(ip)}\t1\n'
+        with open(os.path.join(im_dir, 'fileState.txt'), 'a') as f:
             f.write(line)
         
         print(f'done {ip}')
