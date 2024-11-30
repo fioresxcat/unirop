@@ -6,6 +6,7 @@ import shutil
 import numpy as np
 import cv2
 from PIL import Image
+from .utils import poly2box
 
 
 def convert_CompHRDoc():
@@ -72,7 +73,7 @@ def convert_CompHRDoc():
         print(f'Delete {file}')
 
 
-def json2paddle():
+def labelme2paddle():
     im_dir = 'raw_data/VAT_data/images'
     json_dir = 'raw_data/VAT_data/segment_jsons'
 
@@ -109,6 +110,33 @@ def json2paddle():
         print(f'done {ip}')
     
 
+def paddle2rop():
+    dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/images'
+    with open(os.path.join(dir, 'Label.txt')) as f:
+        labels = [line.strip() for line in f.readlines()]
+    
+    for line in labels:
+        fp, paddle_annos = line.split('\t')
+        paddle_annos = json.loads(paddle_annos)
+        fn = fp.split('/')[-1]
+        rop_annos = []
+        for i, paddle_anno in enumerate(paddle_annos):
+            p4_bb = poly2box(paddle_anno['points'])
+            p8_bb = np.array(paddle_anno['points']).flatten().tolist()
+            rop_anno = {
+                'p4_bb': p4_bb,
+                'p8_bb': p8_bb,
+                'text': paddle_anno['transcription'],
+                'order': i,
+                'id': i
+            }
+            rop_annos.append(rop_anno)
+        with open(os.path.join(dir, fn.replace('.jpg', '.json')), 'w') as f:
+            json.dump(rop_annos, f, ensure_ascii=False)
+        print(f'done {fp}')
+
+    
+
 
 def view_data():
     ip = 'data/CompHRDoc_reduce/test/1808.07823_3.png'
@@ -127,4 +155,5 @@ if __name__ == '__main__':
     pass
     # convert_CompHRDoc()
     # view_data()
-    json2paddle()
+    # labelme2paddle()
+    # paddle2rop()
