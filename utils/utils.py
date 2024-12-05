@@ -10,6 +10,25 @@ from shapely.geometry import Polygon
 import unidecode
 import os
 
+def parse_xml(xml):
+    root = ET.parse(xml).getroot()
+    objs = root.findall('object')
+    boxes, ymins, obj_names = [], [], []
+    for obj in objs:
+        obj_name = obj.find('name').text
+        box = obj.find('bndbox')
+        xmin = float(box.find('xmin').text)
+        ymin = float(box.find('ymin').text)
+        xmax = float(box.find('xmax').text)
+        ymax = float(box.find('ymax').text)
+        ymins.append(ymin)
+        boxes.append([xmin, ymin, xmax, ymax])
+        obj_names.append(obj_name)
+    indices = np.argsort(ymins)
+    boxes = [boxes[i] for i in indices]
+    obj_names = [obj_names[i] for i in indices]
+    return boxes, obj_names
+
 
 def max_left(poly):
     return min(poly[0], poly[2], poly[4], poly[6])
