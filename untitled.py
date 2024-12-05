@@ -77,8 +77,8 @@ def add_id_to_segment():
 
 
 def remove_box_in_table():
-    json_dir = 'raw_data/VAT_data/segment_jsons'
-    table_dir = 'raw_data/VAT_data/table_xmls'
+    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
+    table_dir = 'raw_data/VAT_scan_local_images/table_xmls'
 
     for jp in Path(json_dir).glob('*.json'):
         with open(jp) as f:
@@ -106,6 +106,32 @@ def remove_box_in_table():
         print(f'done {jp}')
 
 
+
+def remove_linhtinh_boxes():
+    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
+
+    for jp in Path(json_dir).glob('*.json'):
+        with open(jp) as f:
+            js_data = json.load(f)
+
+
+        remove_indexes = []
+        for i, shape in enumerate(js_data['shapes']):
+            pts = shape['points']
+            xmin, ymin, xmax, ymax = poly2box(pts)
+            if (ymax-ymin) / (xmax-xmin) >= 1.5:
+                remove_indexes.append(i)
+
+        js_data['shapes'] = [shape for i, shape in enumerate(js_data['shapes']) if i not in remove_indexes]
+
+        with open(jp, 'w') as f:
+            json.dump(js_data, f, ensure_ascii=False)
+        
+        print(f'done {jp}')
+
+
+
+
 def infer_table():
     from ultralytics import YOLO
 
@@ -127,7 +153,7 @@ def txt2xml_dir():
         im_h, im_w = im.shape[:2]
         txt2xml(tp, os.path.join(out_dir, tp.stem+'.xml'), (im_w, im_h), {'table': 0})
         print(f'done {tp}')
-        
+
 
 
 def nothing():
@@ -146,5 +172,9 @@ def nothing():
 
 if __name__ == '__main__':
     pass
-    nothing()
+    # nothing()
     # add_id_to_segment()
+    # infer_table()
+    # txt2xml_dir()
+    # remove_box_in_table()
+    remove_linhtinh_boxes()

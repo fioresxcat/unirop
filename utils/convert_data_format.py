@@ -155,5 +155,5 @@ if __name__ == '__main__':
     pass
     # convert_CompHRDoc()
     # view_data()
-    # labelme2paddle()
+    json2paddle()
     # paddle2rop()
