@@ -18,22 +18,23 @@ from ..global_pointers.globalpointer import GlobalPointer
 from losses.main_losses import all_losses
 
 
-class LayoutLMv3ForRORelation(LayoutLMv3PreTrainedModel):
+class LayoutLMv3TwoHeadsForRORelation(LayoutLMv3PreTrainedModel):
     _keys_to_ignore_on_load_missing = [r"position_ids"]
 
-    def __init__(self, config, head_size=128, dropout=0.1, criterion='globalpointer_loss'):
-        super().__init__(config)
-        self.num_labels = config.num_labels
-        self.config = config
-        self.layoutlmv3 = LayoutLMv3Model(config)
+    def __init__(self, lmv3_config, gp_config, dropout=0.1, criterion='globalpointer_loss'):
+        super().__init__(lmv3_config)
+        self.layoutlmv3 = LayoutLMv3Model(lmv3_config)
         self.dropout = nn.Dropout(dropout)
-        self.global_pointer = GlobalPointer(
-            hidden_size=config.hidden_size,
-            heads=1,
-            head_size=head_size,
-            RoPE=False,
-            tril_mask=False
+        self.global_pointer_1 = GlobalPointer(
+            hidden_size=lmv3_config.hidden_size,
+            **gp_config,
         )
+
+        self.global_pointer_2 = GlobalPointer(
+            hidden_size=lmv3_config.hidden_size,
+            **gp_config,
+        )
+
         self.criterion = all_losses[criterion]
 
 
@@ -46,6 +47,7 @@ class LayoutLMv3ForRORelation(LayoutLMv3PreTrainedModel):
                 pixel_values=None,
                 position_ids=None,
                 grid_labels=None,
+                prev_grid_labels=None,
                 token_type_ids=None,
                 head_mask=None,
                 inputs_embeds=None,
@@ -80,29 +82,38 @@ class LayoutLMv3ForRORelation(LayoutLMv3PreTrainedModel):
         mean_features = summed_features / unit_counts  # [batch_size, num_units, feature_size]
 
         # global pointer
-        logits, _ = self.global_pointer(inputs=mean_features, attention_mask=global_pointer_masks)
-        if grid_labels is not None:
+        logits1, _ = self.global_pointer_1(inputs=mean_features, attention_mask=global_pointer_masks)
+        logits2, _ = self.global_pointer_2(inputs=mean_features, attention_mask=global_pointer_masks)
+
+        if grid_labels is not None and prev_grid_labels is not None:
             grid_labels = grid_labels.unsqueeze(1)
-            loss = self.criterion(logits, grid_labels, global_pointer_masks)
+            prev_grid_labels = prev_grid_labels.unsqueeze(1)
+            loss1 = self.criterion(logits1, grid_labels, global_pointer_masks)
+            loss2 = self.criterion(logits2, prev_grid_labels, global_pointer_masks)
         else:
-            loss = None
+            loss1, loss2 = None, None
         
         # pdb.set_trace()
-        return ModelOutput(logits=logits, loss=loss)
+        return ModelOutput(logits1=logits1, logits2=logits2, loss1=loss1, loss2=loss2)
     
 
 from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScore
 
-class LayoutLMv3ForRORelationModule(pl.LightningModule):
+class LayoutLMv3TwoHeadsForRORelationModule(pl.LightningModule):
     def __init__(
         self,
         pretrained_path: str,
+        gp_config: dict,
         criterion: str,
+        head_loss_weight: dict,
         optimizer_config: dict,
     ):
         super().__init__()
         self.optimizer_config = EasyDict(optimizer_config)
-        self.model = LayoutLMv3ForRORelation.from_pretrained(pretrained_path, criterion=criterion)
+        self.head_loss_weight = head_loss_weight
+        self.model = LayoutLMv3TwoHeadsForRORelation.from_pretrained(
+            pretrained_path, gp_config=gp_config, criterion=criterion
+        )
         
         self.train_edge_acc = EdgeRelationAccuracy()
         self.val_edge_acc = EdgeRelationAccuracy()
@@ -113,31 +124,50 @@ class LayoutLMv3ForRORelationModule(pl.LightningModule):
         self.train_bleu4 = ROBleuScore(n_gram=4)
         self.val_bleu4 = ROBleuScore(n_gram=4)
 
+        self.train_prev_edge_acc = EdgeRelationAccuracy()
+        self.val_prev_edge_acc = EdgeRelationAccuracy()
+
+        self.train_prev_sample_acc = TotalOrderAccuracy()
+        self.val_prev_sample_acc = TotalOrderAccuracy()
+
+        self.train_prev_bleu4 = ROBleuScore(n_gram=4)
+        self.val_prev_bleu4 = ROBleuScore(n_gram=4)
+
 
     def step(self, batch, batch_idx, split):
         outputs = self.model(**batch)
-        loss, logits = outputs.loss, outputs.logits
+        loss1, loss2, logits1, logits2 = outputs.loss1, outputs.loss2, outputs.logits1, outputs.logits2
 
         edge_acc = getattr(self, f'{split}_edge_acc')
-        edge_acc(logits, batch['grid_labels'], batch['global_pointer_masks'])
+        edge_acc(logits1, batch['grid_labels'], batch['global_pointer_masks'])
+        prev_edge_acc = getattr(self, f'{split}_prev_edge_acc')
+        prev_edge_acc(logits2, batch['prev_grid_labels'], batch['global_pointer_masks'])
 
         sample_acc = getattr(self, f'{split}_sample_acc')
-        sample_acc(logits, batch['grid_labels'], batch['global_pointer_masks'])
+        sample_acc(logits1, batch['grid_labels'], batch['global_pointer_masks'])
+        prev_sample_acc = getattr(self, f'{split}_prev_sample_acc')
+        prev_sample_acc(logits2, batch['prev_grid_labels'], batch['global_pointer_masks'])
 
         bleu = getattr(self, f'{split}_bleu4')
-        bleu(logits, batch['grid_labels'], batch['global_pointer_masks'])
+        bleu(logits1, batch['grid_labels'], batch['global_pointer_masks'])
+        prev_bleu = getattr(self, f'{split}_prev_bleu4')
+        prev_bleu(logits2, batch['prev_grid_labels'], batch['global_pointer_masks'])
 
         self.log_dict({
-            f'{split}_loss': loss,
+            f'{split}_loss1': loss1,
+            f'{split}_loss2': loss2
         }, on_step=True, on_epoch=True, prog_bar=True)
 
         self.log_dict({
             f'{split}_edge_acc': edge_acc,
+            f'{split}_prev_edge_acc': prev_edge_acc,
             f'{split}_sample_acc': sample_acc,
-            f'{split}_bleu4': bleu
+            f'{split}_prev_sample_acc': prev_sample_acc,
+            f'{split}_bleu4': bleu,
+            f'{split}_prev_bleu4': prev_bleu
         }, on_step=False, on_epoch=True, prog_bar=True)
 
-        return loss
+        return self.head_loss_weight['loss1'] * loss1 + self.head_loss_weight['loss2'] * loss2
     
 
     def training_step(self, batch, batch_idx):

@@ -92,6 +92,60 @@ def sparse_globalpointer_loss(y_true, y_pred):
     return loss.sum(dim=1).mean()
 
 
+
+def cycle_loss(pred: torch.Tensor):
+    """
+    Compute cycle consistency loss for a probability matrix.
+
+    Args:
+        pred (torch.Tensor): Prob matrix (after softmax or sigmoid), shape (nxn).
+
+    Returns:
+        torch.Tensor: Computed cycle loss.
+    """
+    n = pred.shape[0]  # actually n+2
+    device = pred.device
+
+    # Initialize the loss
+    loss = torch.tensor(0.0, device=device)
+
+    # Accumulate loss for cycle powers from 1 to n
+    pred_power = torch.eye(n, device=device)  # Start with the identity matrix
+    for i in range(1, n + 1):  # Includes the final cycle (i=n)
+        pred_power = torch.matmul(pred_power, pred)  # Efficient power calculation
+        pred_diag = torch.diagonal(pred_power)  # Get diagonal elements
+        if i < n:
+            loss += torch.norm(pred_diag, p=2)  # L2 norm of the diagonal
+        else:
+            loss += torch.norm(pred_diag - 1, p=2)  # Final cycle: diag elements close to 1
+
+    return loss / n
+
+
+
+def degree_loss(pred: torch.Tensor):
+    """
+    Compute degree consistency loss for a probability matrix.
+
+    Args:
+        pred (torch.Tensor): Prob matrix (after softmax or sigmoid), shape (nxn).
+
+    Returns:
+        torch.Tensor: Computed degree loss.
+    """
+    # Row and column sums
+    row_sums = torch.sum(pred, dim=1)  # Sum along columns (row-wise)
+    column_sums = torch.sum(pred, dim=0)  # Sum along rows (column-wise)
+
+    # Combine row and column discrepancies
+    discrepancies = (1 - row_sums) ** 2 + (1 - column_sums) ** 2
+
+    # Use stable log operation for loss
+    loss = torch.log1p(torch.sum(discrepancies))  # log(1 + x) for stability
+    return loss
+
+
+
 def softmax_ce_loss(y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.Tensor):
     """
         y_true: shape (batch_size, ent_type_size, seq_len, seq_len)
@@ -114,6 +168,31 @@ def softmax_ce_loss(y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.Tens
     return batch_losses.mean()
 
 
+def softmax_ce_cycle_loss(y_pred: torch.Tensor, y_true: torch.Tensor, mask: torch.Tensor):
+    """
+        y_true: shape (batch_size, ent_type_size, seq_len, seq_len)
+        y_pred: shape (batch_size, ent_type_size, seq_len, seq_len)
+        mask: shape (batch_size, seq_len)
+    """
+    y_true, y_pred = y_true.squeeze(1), y_pred.squeeze(1)
+    b, seq_len, seq_len = y_pred.shape
+    batch_losses = torch.zeros(b)
+
+    for i, (pred, true, sample_mask) in enumerate(zip(y_pred, y_true, mask)):
+        num_units = sample_mask.sum()
+        pred = pred[:num_units, :num_units]
+        true = true[:num_units, :num_units]
+        true_indexes = true.argmax(dim=1)
+        ce_loss = F.cross_entropy(pred, true_indexes, reduce='mean')
+
+        # cycle loss
+        c_loss = cycle_loss(torch.softmax(pred, dim=1))
+
+        batch_losses[i] = ce_loss + c_loss
+
+    return batch_losses.mean()
+
+
 def pairwise_bce_loss(y_pred, y_true, mask):
     y_true, y_pred = y_true.squeeze(1), y_pred.squeeze(1)
     b, seq_len, seq_len = y_pred.shape
@@ -129,7 +208,7 @@ def pairwise_bce_loss(y_pred, y_true, mask):
     return batch_losses.mean()
 
 
-def pairwise_bce_and_degree_loss(y_pred, y_true, mask):
+def pairwise_bce_degree_loss(y_pred, y_true, mask):
     y_true, y_pred = y_true.squeeze(1), y_pred.squeeze(1)
     b, seq_len, seq_len = y_pred.shape
     batch_losses = torch.zeros(b)
@@ -141,16 +220,40 @@ def pairwise_bce_and_degree_loss(y_pred, y_true, mask):
         bce_loss = F.binary_cross_entropy_with_logits(pred, true.to(torch.float32), reduction='mean')
 
         # degree loss
-        pred = torch.sigmoid(pred)
-        row_sums = torch.sum(pred, dim=1)  # Sum along columns (row-wise)
-        column_sums = torch.sum(pred, dim=0)  # Sum along rows (column-wise)
-        row_col_sums = torch.cat([row_sums, column_sums], dim=0)
-        degree_loss = torch.log(1 + torch.sum((1-row_col_sums)**2))
+        d_loss = degree_loss(torch.sigmoid(pred))
 
         # total loss
-        batch_losses[i] = bce_loss + degree_loss
+        batch_losses[i] = bce_loss + d_loss
 
     return batch_losses.mean()
+
+
+
+def pairwise_bce_degree_cycle_loss(y_pred, y_true, mask):
+    y_true, y_pred = y_true.squeeze(1), y_pred.squeeze(1)
+    b, seq_len, seq_len = y_pred.shape
+    batch_losses = torch.zeros(b)
+
+    for i, (pred, true, sample_mask) in enumerate(zip(y_pred, y_true, mask)):
+        num_units = sample_mask.sum()
+        pred = pred[:num_units, :num_units]
+        true = true[:num_units, :num_units]
+        bce_loss = F.binary_cross_entropy_with_logits(pred, true.to(torch.float32), reduction='mean')
+
+        # degree loss
+        d_loss = degree_loss(torch.sigmoid(pred))
+        
+        # cycle loss
+        c_loss = cycle_loss(torch.sigmoid(pred))
+
+        # total loss
+        batch_losses[i] = bce_loss + d_loss + c_loss
+
+    return batch_losses.mean()
+
+
+
+
 
 
 
@@ -159,5 +262,7 @@ all_losses = {
     'globalpointer_loss': globalpointer_loss,
     'softmax_ce_loss': softmax_ce_loss,
     'pairwise_bce_loss': pairwise_bce_loss,
-    'pairwise_bce_and_degree_loss': pairwise_bce_and_degree_loss
+    'pairwise_bce_and_degree_loss': pairwise_bce_degree_loss,
+    'pairwise_bce_degree_cycle_loss': pairwise_bce_degree_cycle_loss,
+    'softmax_ce_cycle_loss': softmax_ce_cycle_loss
 }

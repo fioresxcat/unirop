@@ -10,7 +10,8 @@ from lightning.pytorch.profilers import SimpleProfiler
 from lightning.pytorch.callbacks import ModelCheckpoint, RichProgressBar, LearningRateMonitor, RichModelSummary
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 from lightning.pytorch.cli import LightningCLI
-from models.layoutlmv3.modeling_layoutlmv3 import LayoutLMv3ForRORelationModule
+from models.layoutlmv3_gp.modeling_layoutlmv3_gp import LayoutLMv3ForRORelationModule
+from models.layoutlmv3_gp.modeling_layoutlmv3_gp_two_heads import LayoutLMv3TwoHeadsForRORelationModule
 from dataset.roor import RORelationDataModule
 
 
@@ -27,6 +28,7 @@ class MyLightningCLI(LightningCLI):
 def cli_main():
     cli = MyLightningCLI(
         LayoutLMv3ForRORelationModule,
+        # LayoutLMv3TwoHeadsForRORelationModule,
         RORelationDataModule,
         parser_kwargs={"parser_mode": "omegaconf"},
     )

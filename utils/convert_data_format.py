@@ -73,8 +73,8 @@ def convert_CompHRDoc():
 
 
 def json2paddle():
-    im_dir = 'raw_data/VAT_data/images'
-    json_dir = 'raw_data/VAT_data/segment_jsons'
+    im_dir = 'raw_data/VAT_scan_local_images/images'
+    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
 
     for ip in Path(im_dir).glob('*.jpg'):
         jp = os.path.join(json_dir, ip.stem+'.json')
