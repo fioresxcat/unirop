@@ -36,24 +36,42 @@ INF = 1e4
 EPSILON = 1e-5
 
 
+class LinearRelu(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(LinearRelu, self).__init__()
+        self.linear = nn.Linear(in_features, out_features)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.relu(self.linear(x))
+    
+
+
 # from https://github.com/JunnYu/GPLinker_pytorch/blob/dev/duee_v1/models.py
 class GlobalPointer(nn.Module):
-    def __init__(self, hidden_size, heads=12, head_size=64, RoPE=True, tril_mask=True, max_length=512):
+    def __init__(self, hidden_size, gp_heads=12, num_dense=1, head_size=64, RoPE=True, tril_mask=True, max_length=512):
         super().__init__()
-        self.heads = heads
+        self.gp_heads = gp_heads
         self.head_size = head_size
         self.RoPE = RoPE
         self.tril_mask = tril_mask
-        self.dense = nn.Linear(hidden_size, heads * 2 * head_size)
+        if num_dense == 1:
+            self.dense = nn.Linear(hidden_size, gp_heads * 2 * head_size)
+        else:
+            self.dense = nn.Sequential(
+                *[LinearRelu(hidden_size, hidden_size) for _ in range(num_dense - 1)],
+                nn.Linear(hidden_size, gp_heads * 2 * head_size),
+            )
         if RoPE:
             self.rotary = RotaryPositionEmbedding(head_size, max_length, unsqueeze_dim=-2)  # n1d
+
 
     def forward(self, inputs, attention_mask=None):
         inputs = self.dense(inputs)
         bs, seqlen = inputs.shape[:2]
 
         # method 1
-        inputs = inputs.reshape(bs, seqlen, self.heads, 2, self.head_size)
+        inputs = inputs.reshape(bs, seqlen, self.gp_heads, 2, self.head_size)
         qw, kw = inputs.unbind(axis=-2)
 
         # method 2

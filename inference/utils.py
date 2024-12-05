@@ -61,8 +61,9 @@ def greedy_best_path(prob_matrix):
     n = prob_matrix.shape[0]
     visited = [False] * n
     path = [0]  # Start at <cls>
-    visited[0] = True
+    visited[0], visited[n-1] = True, True
     product = 1.0
+    list_probs = []
 
     # Greedily select the next highest probability edge
     for _ in range(1, n - 1):  # Exclude the start and end nodes
@@ -81,15 +82,65 @@ def greedy_best_path(prob_matrix):
         path.append(next_node)
         visited[next_node] = True
         product *= max_prob
+        list_probs.append(max_prob)
 
     # Finish at <sep> (last node)
     path.append(n - 1)
     product *= prob_matrix[path[-2], n - 1]
+    list_probs.append(prob_matrix[path[-2], n - 1])
     
     # pdb.set_trace()
     path = path[1:-1]
     path = [el-1 for el in path]
-    return path, product
+    return path, list_probs
+
+
+
+
+def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3):
+    n = len(prob_matrix)
+    
+    def dfs(path, visited, prob):
+        current_node = path[-1]
+        
+        # If we reached the end node <sep>, check if the path is valid
+        print(f'path: {path}')
+        if len(path) == n-1:
+            return path, prob
+        
+        # Get probabilities for the current node
+        probs = prob_matrix[current_node]
+        
+        # Filter unvisited nodes
+        candidates = [(i, p) for i, p in enumerate(probs) if i not in visited]
+        if not candidates:
+            return None, 0  # Dead-end
+        
+        # Sort candidates by probability
+        candidates.sort(key=lambda x: -x[1])
+        
+        # Branch based on the highest probability
+        if candidates[0][1] > threshold:
+            # Greedy step: pick the node with the highest probability
+            next_node = candidates[0][0]
+            return dfs(path + [next_node], visited | {next_node}, prob * candidates[0][1])
+        else:
+            # Explore top-k nodes if highest probability is below threshold
+            best_path, best_prob = None, 0
+            for i in range(min(top_k, len(candidates))):
+                next_node, next_prob = candidates[i]
+                new_path, new_prob = dfs(path + [next_node], visited | {next_node}, prob * next_prob)
+                if new_prob > best_prob:
+                    best_path, best_prob = new_path, new_prob
+            return best_path, best_prob
+
+    # Start the search from <cls> node (node 0)
+    best_path, best_prob = dfs([0], {0, n-1}, 1)
+    best_path = [el - 1 for el in best_path[1:]]
+    assert len(best_path) == n-2
+    return best_path, best_prob
+
+
 
 
 

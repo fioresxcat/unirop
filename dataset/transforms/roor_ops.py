@@ -277,6 +277,119 @@ class ROORInputEncoder(ItemTransform):
         return item
 
 
+class ROORInputEncoderTwoHeads(ROORInputEncoder):
+    def _get_directed_edges(self, list_segments):
+        reading_orders = [segment['order'] for segment in list_segments]
+        sorted_indexes = np.argsort(reading_orders)
+        next_edges, prev_edges = [], []
+
+        for index, segment_index in enumerate(sorted_indexes):
+            if index == len(sorted_indexes) - 1:
+                id1 = list_segments[segment_index]['id']
+                id2 = list_segments[sorted_indexes[0]]['id']
+                next_edges.append((id1, id2))
+            else:
+                id1 = list_segments[segment_index]['id']
+                id2 = list_segments[sorted_indexes[index+1]]['id']
+                next_edges.append((id1, id2))
+
+        
+        for index, segment_index in enumerate(sorted_indexes):
+            if index == 0:
+                id1 = list_segments[segment_index]['id']
+                id2 = list_segments[sorted_indexes[-1]]['id']
+                prev_edges.append((id1, id2))
+            else:
+                id1 = list_segments[segment_index]['id']
+                id2 = list_segments[sorted_indexes[index-1]]['id']
+                prev_edges.append((id1, id2))
+        
+        return next_edges, prev_edges
+
+
+    def process(self, item, mode='val'):
+        list_segments = item['list_segments']
+        im = item['image']
+        im_h, im_w = im.shape[:2]
+
+        # add cls and sep segments
+        list_segments = self._add_cls_and_sep_segment(list_segments, (im_w, im_h))
+
+        # get directed edges
+        next_edges, prev_edges = self._get_directed_edges(list_segments)
+        id2index = {segment['id']: i for i, segment in enumerate(list_segments)}
+
+        segment_texts, norm_boxes = [], []
+        for segment_info in list_segments:
+            text = segment_info['text']
+            if self.lower_text:
+                text = text.lower()
+            if self.normalize_text:
+                text = unidecode.unidecode(text)
+            segment_texts.append(text)
+            norm_boxes.append(normalize_bbox(segment_info['p4_bb'], im_w, im_h))
+
+        enc_inp = self.processor(
+            im, segment_texts, boxes=norm_boxes,
+            truncation=True, padding="max_length", max_length=self.max_seq_len,
+            return_tensors="pt"
+        )
+
+        # construct segment spans
+        segment_spans = self._get_segment_spans(enc_inp.word_ids(0))
+        assert len(segment_spans) == len(list_segments)  # segment_spans and list_segments must be in the same order
+        # print(segment_spans)
+        # pdb.set_trace()
+
+        # get grid labels
+        grid_labels = torch.zeros(size=(self.max_num_units, self.max_num_units), dtype=torch.int64)
+        for id_i, id_j in next_edges:
+            grid_labels[id2index[id_i]][id2index[id_j]] = 1
+
+        # get prev grid labels
+        prev_grid_labels = torch.zeros(size=(self.max_num_units, self.max_num_units), dtype=torch.int64)
+        for id_i, id_j in prev_edges:
+            prev_grid_labels[id2index[id_i]][id2index[id_j]] = 1
+
+        # construct mask for each unit
+        unit_masks = []
+        for i, j in segment_spans:  # for start token index and end token index of each segment
+            unit_mask = [0] * self.max_seq_len
+            unit_mask[i:j+1] = [1] * (j+1 - i)
+            unit_masks.append(unit_mask)
+        unit_masks = unit_masks[:self.max_num_units] # unit_masks and list_segments must be in the same order
+
+        global_pointer_masks = torch.tensor([1] * len(unit_masks) + [0] * (self.max_num_units - len(unit_masks)), dtype=torch.int64)
+        num_units = torch.tensor(len(unit_masks), dtype=torch.int64)
+
+        # The number of unit masks needs to be padded to max_num_units
+        while len(unit_masks) < self.max_num_units:
+            unit_mask = [0] * self.max_seq_len
+            unit_mask[0] = 1  # padding units will all be represented by the <cls> token.
+            unit_masks.append(unit_mask)
+        unit_masks = torch.tensor(unit_masks, dtype=torch.int64)
+
+        # add mask for image token
+        unit_masks = torch.cat(
+            (unit_masks, torch.zeros((self.max_num_units, self.IMAGE_LEN), dtype=torch.int64)), dim=1
+        )
+
+        # squeeze
+        for k, v in enc_inp.items():
+            if isinstance(v, torch.Tensor):
+                enc_inp[k] = v.squeeze(0)
+        item.update(enc_inp)
+        item.update({
+            'grid_labels': grid_labels,
+            'prev_grid_labels': prev_grid_labels,
+            'unit_masks': unit_masks,
+            'num_units': num_units,
+            'global_pointer_masks': global_pointer_masks
+        })
+        self.keep_keys(item)
+        return item
+    
+    
 
 
 if __name__ == '__main__':

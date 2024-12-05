@@ -25,9 +25,9 @@ data:
         shuffle: true
         seed_val: ${seed_everything}
 
-    - class_path: ROORInputEncoder
+    - class_path: ROORInputEncoderTwoHeads
       init_args:
-        keep_keys: ['grid_labels', 'unit_masks', 'num_units', 'global_pointer_masks', 'input_ids', 'attention_mask', 'bbox', 'pixel_values']
+        keep_keys: ['grid_labels', 'prev_grid_labels', 'unit_masks', 'num_units', 'global_pointer_masks', 'input_ids', 'attention_mask', 'bbox', 'pixel_values']
         processor_path: ${model.pretrained_path}
         max_seq_len: 1024  # max token length for a document
         max_num_units: 256  # max text lines for a document
@@ -46,7 +46,10 @@ model:
     num_dense: 1
     RoPE: false
     tril_mask: false
-  criterion: pairwise_bce_and_degree_loss
+  criterion: softmax_ce_loss
+  head_loss_weight:
+    loss1: 0.5
+    loss2: 0.5
   optimizer_config:
     learning_rate: 1.0e-4
     weight_decay: 1.0e-2
@@ -70,7 +73,7 @@ trainer:
   logger:
     class_path: TensorBoardLogger
     init_args:
-      save_dir: ckpt/VAT/exp3_bce_degree_loss
+      save_dir: ckpt/VAT/exp1_2_heads
       name: ''
       version: ''
 

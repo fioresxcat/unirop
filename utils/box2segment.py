@@ -75,8 +75,8 @@ def sort_and_merge_box(bbs, texts, d_thres):
 
 
 def main():
-    src_dir = 'raw_data/VAT_data/images'
-    out_dir = 'raw_data/VAT_data/segment_jsons'
+    src_dir = 'raw_data/VAT_scan_local_images/images'
+    out_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
     os.makedirs(out_dir, exist_ok=True)
     for ip in Path(src_dir).glob('*.jpg'):
         # if ip.stem not in ['2C23THG_00000007-0', '00001004-0']:
@@ -100,13 +100,13 @@ def main():
         avg_h = np.average(list_hs)
         page_text_lines, page_bb_lines = sort_and_merge_box(bbs, texts, 2*avg_h)
         
-        # visualize
-        im = cv2.imread(str(ip))
-        for bb_index, bb in enumerate(page_bb_lines):
-            bb = list(map(int, bb))
-            cv2.rectangle(im, (bb[0], bb[1]), (bb[2], bb[3]), (0, 0, 255), 2)
-            cv2.putText(im, str(bb_index), (bb[0], bb[1]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 2)
-        cv2.imwrite('test.jpg', im)
+        # # visualize
+        # im = cv2.imread(str(ip))
+        # for bb_index, bb in enumerate(page_bb_lines):
+        #     bb = list(map(int, bb))
+        #     cv2.rectangle(im, (bb[0], bb[1]), (bb[2], bb[3]), (0, 0, 255), 2)
+        #     cv2.putText(im, str(bb_index), (bb[0], bb[1]), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 2)
+        # cv2.imwrite('test.jpg', im)
 
         # write to new json
         new_json_data = deepcopy(json_data)

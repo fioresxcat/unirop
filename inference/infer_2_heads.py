@@ -12,21 +12,21 @@ from itertools import permutations
 import json
 from utils.utils import *
 from .utils import *
-from models.layoutlmv3.modeling_layoutlmv3 import LayoutLMv3ForRORelation
+from models.layoutlmv3_gp.modeling_layoutlmv3_gp_two_heads import LayoutLMv3TwoHeadsForRORelation
 from dataset.transforms.roor_ops import *
 from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScore
 
 
 class LayoutLMv3RORelationPredictor:
-    def __init__(self, ckpt_path, device, act='softmax'):
+    def __init__(self, ckpt_path, device):
         super().__init__()
         self.device = device
         state_dict = self.parse_state_dict(ckpt_path)
-        self.model = LayoutLMv3ForRORelation.from_pretrained('pretrained/layoutlmv3-base-1024')
+        self.model = LayoutLMv3TwoHeadsForRORelation.from_pretrained('pretrained/layoutlmv3-base-1024')
         self.model.load_state_dict(state_dict)
         print('Load state dict OK!')
         self.model.to(device)
-        self.act = act  # activation function
+
         self.edge_acc = EdgeRelationAccuracy().to(device)
         self.sample_acc = TotalOrderAccuracy().to(device)
         self.bleu4 = ROBleuScore(n_gram=4).to(device)
@@ -61,23 +61,20 @@ class LayoutLMv3RORelationPredictor:
     @torch.no_grad()
     def predict(self, inp):
         outputs = self.model(**inp)
-        raw_logits, loss = outputs.logits, outputs.loss
-        logits = raw_logits.squeeze(1).squeeze(0)  # (max_num_units, max_num_units)
+        raw_logits_1, raw_logits_2, loss1, loss2 = outputs.logits1, outputs.logits2, outputs.loss1, outputs.loss2
         num_units = inp['global_pointer_masks'][0].sum()
-        logits = logits[:num_units, :num_units]
-        if self.act == 'softmax':
-            probs = torch.softmax(logits, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
-        elif self.act == 'sigmoid':
-            probs = torch.sigmoid(logits).cpu().numpy()
-        else:
-            raise ValueError(f'Unsupported activation function: {self.act}')
+        logits1 = raw_logits_1.squeeze(1).squeeze(0)[:num_units, :num_units]  # (max_num_units, max_num_units)
+        logits2 = raw_logits_2.squeeze(1).squeeze(0)[:num_units, :num_units]  # (max_num_units, max_num_units)
+        probs1 = torch.softmax(logits1, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
+        probs2 = torch.softmax(logits2, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
+        probs = (probs1 + probs2.T) / 2
         best_path, best_probs = find_best_path_with_expansion(probs)
         
         # update metrics
         grid_labels = inp['grid_labels'].unsqueeze(1)
-        edge_acc = self.edge_acc(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
-        sample_acc = self.sample_acc(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
-        sample_bleu = self.bleu4(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
+        edge_acc = self.edge_acc(raw_logits_1, grid_labels, inp['global_pointer_masks']).cpu().item()
+        sample_acc = self.sample_acc(raw_logits_1, grid_labels, inp['global_pointer_masks']).cpu().item()
+        sample_bleu = self.bleu4(raw_logits_1, grid_labels, inp['global_pointer_masks']).cpu().item()
         metric = {
             'edge_accuracy': round(edge_acc, 3),
             'sample_accuracy': round(sample_acc, 3),
@@ -96,7 +93,7 @@ class LayoutLMv3RORelationPredictor:
 def main(args):
     from omegaconf import OmegaConf
 
-    predictor = LayoutLMv3RORelationPredictor(args.ckpt_path, args.device, args.act)
+    predictor = LayoutLMv3RORelationPredictor(args.ckpt_path, args.device)
 
     # get transform config
     config = OmegaConf.load(Path(args.ckpt_path).parent / 'config.yaml')
@@ -108,12 +105,12 @@ def main(args):
     # override transform config
     transform_config['ChunkAndShuffle']['shuffle'] = args.shuffle
     transform_config['ChunkAndShuffle']['seed_val'] = args.seed
-    transform_config['ROORInputEncoder']['keep_keys'].append('list_segments')
+    transform_config['ROORInputEncoderTwoHeads']['keep_keys'].append('list_segments')
 
     # load transforms
     load_image_and_json = LoadImageAndJson(**transform_config['LoadImageAndJson'])
     chunk_and_shuffle = ChunkAndShuffle(**transform_config['ChunkAndShuffle'])
-    input_encoder = ROORInputEncoder(**transform_config['ROORInputEncoder'])
+    input_encoder = ROORInputEncoderTwoHeads(**transform_config['ROORInputEncoderTwoHeads'])
 
     os.makedirs(args.out_dir, exist_ok=True)
     result = {
@@ -176,7 +173,6 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, required=True)
     parser.add_argument('--src_dir', type=str, required=True)
     parser.add_argument('--out_dir', type=str, required=True)
-    parser.add_argument('--act', type=str, default='softmax')
     parser.add_argument('--shuffle', action='store_true')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--scale', type=float, default=1)
