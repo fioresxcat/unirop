@@ -75,8 +75,8 @@ def sort_and_merge_box(bbs, texts, d_thres):
 
 
 def main():
-    src_dir = 'raw_data/VAT_scan_local_images/images'
-    out_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
+    src_dir = 'raw_data/VAT_acb_captured/images'
+    out_dir = 'raw_data/VAT_acb_captured/segment_jsons'
     os.makedirs(out_dir, exist_ok=True)
     for ip in Path(src_dir).glob('*.jpg'):
         # if ip.stem not in ['2C23THG_00000007-0', '00001004-0']:

@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import pdb
+import heapq
 
 
 def visualize(im, list_segments, sorted_indexes, save_path, scale=1.0):
@@ -97,10 +98,10 @@ def greedy_best_path(prob_matrix):
 
 
 
-def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3):
+def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3, min_prob=0.05, max_paths=20):
     n = len(prob_matrix)
     
-    def dfs(path, visited, prob):
+    def dfs(path, visited, prob, num_paths=0):
         current_node = path[-1]
         
         # If we reached the end node <sep>, check if the path is valid
@@ -120,22 +121,24 @@ def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3):
         candidates.sort(key=lambda x: -x[1])
         
         # Branch based on the highest probability
-        if candidates[0][1] > threshold:
+        if candidates[0][1] > threshold or num_paths >= max_paths:
             # Greedy step: pick the node with the highest probability
             next_node = candidates[0][0]
-            return dfs(path + [next_node], visited | {next_node}, prob * candidates[0][1])
+            return dfs(path + [next_node], visited | {next_node}, prob * candidates[0][1], num_paths+1)
         else:
             # Explore top-k nodes if highest probability is below threshold
             best_path, best_prob = None, 0
             for i in range(min(top_k, len(candidates))):
                 next_node, next_prob = candidates[i]
-                new_path, new_prob = dfs(path + [next_node], visited | {next_node}, prob * next_prob)
+                if next_prob < min_prob:
+                    break
+                new_path, new_prob = dfs(path + [next_node], visited | {next_node}, prob * next_prob, num_paths+1)
                 if new_prob > best_prob:
                     best_path, best_prob = new_path, new_prob
             return best_path, best_prob
 
     # Start the search from <cls> node (node 0)
-    best_path, best_prob = dfs([0], {0, n-1}, 1)
+    best_path, best_prob = dfs([0], {0, n-1}, 1, num_paths=0)
     best_path = [el - 1 for el in best_path[1:]]
     assert len(best_path) == n-2
     return best_path, best_prob

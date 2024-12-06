@@ -77,8 +77,8 @@ def add_id_to_segment():
 
 
 def remove_box_in_table():
-    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
-    table_dir = 'raw_data/VAT_scan_local_images/table_xmls'
+    json_dir = 'raw_data/VAT_acb_captured/segment_jsons'
+    table_dir = 'raw_data/VAT_acb_captured/table_xmls'
 
     for jp in Path(json_dir).glob('*.json'):
         with open(jp) as f:
@@ -108,7 +108,7 @@ def remove_box_in_table():
 
 
 def remove_linhtinh_boxes():
-    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
+    json_dir = 'raw_data/VAT_acb_captured/segment_jsons'
 
     for jp in Path(json_dir).glob('*.json'):
         with open(jp) as f:
@@ -137,15 +137,15 @@ def infer_table():
 
     model = YOLO('utils/table_detect.onnx')
     model.predict(
-        source='raw_data/VAT_scan_local_images/images',
+        source='raw_data/VAT_acb_captured/images',
         imgsz=640, conf=0.3, iou=0.3, save_txt=True, save=False
     )
 
 
 def txt2xml_dir():
     dir = 'runs/detect/predict/labels'
-    im_dir = 'raw_data/VAT_scan_local_images/images'
-    out_dir = 'raw_data/VAT_scan_local_images/table_xmls'
+    im_dir = 'raw_data/VAT_acb_captured/images'
+    out_dir = 'raw_data/VAT_acb_captured/table_xmls'
     os.makedirs(out_dir, exist_ok=True)
     for tp in Path(dir).glob('*.txt'):
         ip = os.path.join(im_dir, tp.stem+'.jpg')
@@ -157,17 +157,13 @@ def txt2xml_dir():
 
 
 def nothing():
-    im = cv2.imread('raw_data/VAT_data/images/00000001-0.jpg')
-    with open('raw_data/VAT_data/images/00000001-0.json') as f:
-        js_data = json.load(f)
-    
-    shapes = np.random.choice(js_data['shapes'], size=5)
-    for shape in shapes:
-        bb = poly2box(shape['points'])
-        cv2.rectangle(im, (bb[0], bb[1]), (bb[2], bb[3]), (0, 0, 255), 2)
-        text = shape['text']
-        cv2.putText(im, text, (bb[0], bb[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-    cv2.imwrite('test.jpg', im)
+    dir = 'raw_data/VAT_acb_captured/images'
+    for index, ip in enumerate(Path(dir).glob('*.png')):
+        new_name = f'capture_{index}.jpg'
+        im = cv2.imread(str(ip))
+        new_fp = os.path.join(dir, new_name)
+        cv2.imwrite(new_fp, im)
+        print(f'done {ip}')
 
 
 if __name__ == '__main__':
@@ -177,4 +173,4 @@ if __name__ == '__main__':
     # infer_table()
     # txt2xml_dir()
     # remove_box_in_table()
-    remove_linhtinh_boxes()
+    # remove_linhtinh_boxes()

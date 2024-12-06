@@ -18,11 +18,14 @@ from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScor
 
 
 class LayoutLMv3RORelationPredictor:
-    def __init__(self, ckpt_path, device):
+    def __init__(self, ckpt_path, config, device):
         super().__init__()
         self.device = device
         state_dict = self.parse_state_dict(ckpt_path)
-        self.model = LayoutLMv3TwoHeadsForRORelation.from_pretrained('pretrained/layoutlmv3-base-1024')
+        self.model = LayoutLMv3TwoHeadsForRORelation.from_pretrained(
+            'pretrained/layoutlmv3-base-1024',
+            gp_config=config.model.gp_config,
+        )
         self.model.load_state_dict(state_dict)
         print('Load state dict OK!')
         self.model.to(device)
@@ -68,6 +71,7 @@ class LayoutLMv3RORelationPredictor:
         probs1 = torch.softmax(logits1, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
         probs2 = torch.softmax(logits2, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
         probs = (probs1 + probs2.T) / 2
+        # pdb.set_trace()
         best_path, best_probs = find_best_path_with_expansion(probs)
         
         # update metrics
@@ -93,10 +97,10 @@ class LayoutLMv3RORelationPredictor:
 def main(args):
     from omegaconf import OmegaConf
 
-    predictor = LayoutLMv3RORelationPredictor(args.ckpt_path, args.device)
+    config = OmegaConf.load(Path(args.ckpt_path).parent / 'config.yaml')
+    predictor = LayoutLMv3RORelationPredictor(args.ckpt_path, config, args.device)
 
     # get transform config
-    config = OmegaConf.load(Path(args.ckpt_path).parent / 'config.yaml')
     transform_config = {}
     for trans in config.data.transform_ops:
         class_name = trans['class_path'].split('.')[-1]
@@ -120,8 +124,8 @@ def main(args):
     ipaths = [ip for ip in Path(args.src_dir).glob('*') if is_image(ip)]
     ipaths.sort()
     for ip in ipaths:
-        if '3278-1' not in ip.name:
-            continue
+        # if '3278-1' not in ip.name:
+        #     continue
         jp = ip.with_suffix('.json')
         if not jp.exists():
             continue
@@ -173,6 +177,7 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, required=True)
     parser.add_argument('--src_dir', type=str, required=True)
     parser.add_argument('--out_dir', type=str, required=True)
+    parser.add_argument('--act', type=str, default='softmax')
     parser.add_argument('--shuffle', action='store_true')
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--scale', type=float, default=1)
