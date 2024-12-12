@@ -74,8 +74,8 @@ def convert_CompHRDoc():
 
 
 def json2paddle():
-    im_dir = 'raw_data/VAT_scan_local_images/images'
-    json_dir = 'raw_data/VAT_scan_local_images/segment_jsons'
+    im_dir = 'raw_data/VAT_acb_captured/images'
+    json_dir = 'raw_data/VAT_acb_captured/segment_jsons'
 
     for ip in Path(im_dir).glob('*.jpg'):
         jp = os.path.join(json_dir, ip.stem+'.json')
@@ -111,7 +111,7 @@ def json2paddle():
     
 
 def paddle2rop():
-    dir = '/home/fiores/Desktop/VNG/unirop/raw_data/VAT_data/images'
+    dir = 'raw_data/VAT_acb_captured/images'
     with open(os.path.join(dir, 'Label.txt')) as f:
         labels = [line.strip() for line in f.readlines()]
     
@@ -155,5 +155,5 @@ if __name__ == '__main__':
     pass
     # convert_CompHRDoc()
     # view_data()
-    json2paddle()
-    # paddle2rop()
+    # json2paddle()
+    paddle2rop()
