@@ -106,7 +106,7 @@ def main(args):
         transform_config[class_name] = trans['init_args']
 
     # override transform config
-    transform_config['ChunkAndShuffle']['shuffle'] = args.shuffle
+    transform_config['ChunkAndShuffle']['shuffle_prob'] = args.shuffle_prob
     transform_config['ChunkAndShuffle']['seed_val'] = args.seed
     transform_config['ROORInputEncoder']['keep_keys'].append('list_segments')
 
@@ -177,7 +177,7 @@ if __name__ == '__main__':
     parser.add_argument('--src_dir', type=str, required=True)
     parser.add_argument('--out_dir', type=str, required=True)
     parser.add_argument('--act', type=str, default='softmax')
-    parser.add_argument('--shuffle', action='store_true')
+    parser.add_argument('--shuffle_prob', type=float, default=1)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--scale', type=float, default=1)
     parser.add_argument('--save_metrics', action='store_true')

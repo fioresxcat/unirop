@@ -97,7 +97,7 @@ class GlobalPointer(nn.Module):
         )
         logits = logits - mask * INF
 
-        # 排除下三角
+        # exclude the lower triangular matrix
         if self.tril_mask:
             # 排除下三角
             # torch.tril 无法导出ONNX opet12
@@ -107,7 +107,7 @@ class GlobalPointer(nn.Module):
 
             logits = logits - tril_mask * INF
 
-            # 合并两个mask，方便后续做负采样
+            # Combine two masks for subsequent negative sampling
             mask = torch.logical_or(mask, tril_mask)  # boolean
 
         # scale返回

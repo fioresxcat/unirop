@@ -98,7 +98,7 @@ def greedy_best_path(prob_matrix):
 
 
 
-def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3, min_prob=0.05, max_paths=20):
+def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3, min_prob=0.05, max_paths=50):
     n = len(prob_matrix)
     
     def dfs(path, visited, prob, num_paths=0):
@@ -121,7 +121,7 @@ def find_best_path_with_expansion(prob_matrix, threshold=0.9, top_k=3, min_prob=
         candidates.sort(key=lambda x: -x[1])
         
         # Branch based on the highest probability
-        if candidates[0][1] > threshold or num_paths >= max_paths:
+        if candidates[0][1] > threshold or num_paths >= max_paths or candidates[0][0] != np.argmax(probs):
             # Greedy step: pick the node with the highest probability
             next_node = candidates[0][0]
             return dfs(path + [next_node], visited | {next_node}, prob * candidates[0][1], num_paths+1)

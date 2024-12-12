@@ -33,9 +33,9 @@ class LoadImageAndJson(ItemTransform):
 
 class ChunkAndShuffle(ItemTransform):
     def __init__(self, keep_keys, processor_path: str, stride: int, lower_text: bool, normalize_text: bool,
-                 return_first_chunk: bool, shuffle: bool, seed_val: int):
+                 return_first_chunk: bool, shuffle_prob: float, seed_val: int):
         super().__init__(keep_keys)
-        self.shuffle = shuffle
+        self.shuffle_prob = shuffle_prob
         self.seed_val = seed_val
         self.processor = LayoutLMv3Processor.from_pretrained(processor_path, apply_ocr=False)
         self.tokenizer= self.processor.tokenizer
@@ -116,7 +116,7 @@ class ChunkAndShuffle(ItemTransform):
             list_segments = segment_chunks[indexes]
 
         # shuffle
-        if self.shuffle:
+        if np.random.rand() < self.shuffle_prob:
             seed = None if mode == 'train' else self.seed_val
             np.random.seed(seed)
             np.random.shuffle(list_segments)

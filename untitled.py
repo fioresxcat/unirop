@@ -6,6 +6,8 @@ import numpy as np
 import json
 from utils.utils import *
 from omegaconf import OmegaConf
+import fitz
+import xml.etree.ElementTree as ET
 from easydict import EasyDict
 
 
@@ -156,14 +158,51 @@ def txt2xml_dir():
 
 
 
+def visualize_pdf_blocks():
+    data_dir = '../raw_data/Doclaynet_extra/PDF'
+    scale = 2
+    for fp in Path(data_dir).glob('*.pdf'):
+        if '32b2df5281feed2c1805aa0bb7e7c72faeb0ff94a4702146eea94885be152841' not in fp.name:
+            continue
+        doc = fitz.open(fp)
+        for page_index, page in enumerate(doc):
+            # page: Page = page
+            # page.get_textbox((0, 0, page.rect.width, page.rect.height))
+            # page.get_textpage()
+            # page.get_displaylist()
+
+            mat = fitz.Matrix(scale, scale)
+            pix = page.get_pixmap(matrix=mat)
+            shape = (pix.height, pix.width, 3)
+            image = np.ndarray(shape, dtype=np.uint8, buffer=pix.samples)  # this is rgb image
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)  # after this it is actually bgr image
+
+            page_blocks = page.get_text("dict", flags=11)["blocks"]
+            line_index = -1
+            for b_idx, block in enumerate(page_blocks):
+                block_bb = list(map(lambda x: int(x*scale), block['bbox']))
+                block_order = str(block['number'])
+                
+                for l_idx, line in enumerate(block['lines']):
+                    line_bb = list(map(lambda x: int(x*scale), line['bbox']))
+                    line_index += 1
+                    cv2.rectangle(image, (line_bb[0], line_bb[1]), (line_bb[2], line_bb[3]), (0, 0, 255), 2)
+                    cv2.putText(image, str(line_index), (line_bb[0], line_bb[1]), cv2.FONT_HERSHEY_COMPLEX, 0.7, (0, 0, 255), 2)
+
+            cv2.imwrite('test.jpg', image)
+            pdb.set_trace()
+
+
+
 def nothing():
-    dir = 'raw_data/VAT_acb_captured/images'
-    for index, ip in enumerate(Path(dir).glob('*.png')):
-        new_name = f'capture_{index}.jpg'
-        im = cv2.imread(str(ip))
-        new_fp = os.path.join(dir, new_name)
-        cv2.imwrite(new_fp, im)
-        print(f'done {ip}')
+    dir = 'data/VAT_epdf_vng/images'
+    max_len = 0
+    for jp in Path(dir).rglob('*.json'):
+        with open(jp) as f:
+            data = json.load(f)
+        print(len(data))
+        max_len = max(max_len, len(data))
+    print('MAX LEN: ', max_len)
 
 
 if __name__ == '__main__':
@@ -174,3 +213,4 @@ if __name__ == '__main__':
     # txt2xml_dir()
     # remove_box_in_table()
     # remove_linhtinh_boxes()
+    visualize_pdf_blocks()

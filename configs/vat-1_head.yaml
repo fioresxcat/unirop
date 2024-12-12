@@ -3,9 +3,13 @@ seed_everything: 42
 data:
   data_dirs:
     train:
-      - data/VAT_data/images/train
+      - data/VAT_epdf_vng/images/train
+      - data/VAT_scan_local_images/images/train
+      - data/VAT_acb_captured/images/train
     val:
-      - data/VAT_data/images/val
+      - data/VAT_epdf_vng/images/val
+      - data/VAT_scan_local_images/images/val
+      - data/VAT_acb_captured/images/val
 
   processor_path: ${model.pretrained_path}
   augment_ops: []
@@ -22,15 +26,15 @@ data:
         lower_text: true
         normalize_text: true
         return_first_chunk: true
-        shuffle: true
+        shuffle_prob: 1.
         seed_val: ${seed_everything}
 
-    - class_path: ROORInputEncoderTwoHeads
+    - class_path: ROORInputEncoder
       init_args:
-        keep_keys: ['grid_labels', 'prev_grid_labels', 'unit_masks', 'num_units', 'global_pointer_masks', 'input_ids', 'attention_mask', 'bbox', 'pixel_values']
+        keep_keys: ['grid_labels', 'unit_masks', 'num_units', 'global_pointer_masks', 'input_ids', 'attention_mask', 'bbox', 'pixel_values']
         processor_path: ${model.pretrained_path}
         max_seq_len: 1024  # max token length for a document
-        max_num_units: 256  # max text lines for a document
+        max_num_units: 128  # max text lines for a document
         lower_text: true
         normalize_text: true
 
@@ -44,12 +48,9 @@ model:
     gp_heads: 1
     head_size: 128
     num_dense: 1
-    RoPE: false
+    RoPE: true
     tril_mask: false
   criterion: softmax_ce_loss
-  head_loss_weight:
-    loss1: 0.5
-    loss2: 0.5
   optimizer_config:
     learning_rate: 1.0e-4
     weight_decay: 1.0e-2
@@ -73,7 +74,7 @@ trainer:
   logger:
     class_path: TensorBoardLogger
     init_args:
-      save_dir: ckpt/VAT/exp1_2_heads
+      save_dir: ckpt/VAT/exp8-like_exp7-RoPE
       name: ''
       version: ''
 
