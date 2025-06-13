@@ -51,13 +51,16 @@ class RORelationDataset(Dataset):
         ipaths, jpaths = [], []
         cnt = 0
         for data_dir in data_dirs:
-            for jp in Path(data_dir).glob('*.json'):
+            for jp in Path(data_dir).glob('*-rop.json'):
                 with open(jp) as f:
                     list_segments = json.load(f)
-                if len(list_segments) == 0:
+                if len(list_segments) <= 1:
                     continue
-                ip = get_img_fp_from_json_fp(jp)
-                ipaths.append(ip if ip is not None else jp.with_suffix('.jpg'))
+                orig_json_name = jp.stem.split('-rop')[0]
+                ip = get_img_fp_from_json_fp(jp.with_name(orig_json_name + '.json'))
+                if ip is None:
+                    continue
+                ipaths.append(ip)
                 jpaths.append(jp)
 
             #     cnt += 1

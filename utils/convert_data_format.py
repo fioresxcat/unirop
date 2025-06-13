@@ -259,7 +259,7 @@ def json2paddle():
     
 
 def paddle2rop():
-    dir = 'data/test_imgs_2'
+    dir = 'data/InsuranceData/part1_label/train/part_1.1'
     with open(os.path.join(dir, 'Label.txt')) as f:
         labels = [line.strip() for line in f.readlines()]
     
@@ -279,15 +279,16 @@ def paddle2rop():
                 'id': i
             }
             rop_annos.append(rop_anno)
-        with open(os.path.join(dir, fn.replace('.jpg', '.json')), 'w') as f:
+        ip = Path(os.path.join(dir, fn))
+        with open(ip.parent / (ip.stem + '-rop.json'), 'w') as f:
             json.dump(rop_annos, f, ensure_ascii=False)
         print(f'done {fp}')
 
 
 
 def view_rop_data():
-    ip = '/data/tungtx2/reading_order/unirop/data/test_imgs_3/RE-25-177884_2.jpg'
-    jp = '/data/tungtx2/reading_order/unirop/data/test_imgs_3/RE-25-177884_2-rop.json'
+    ip = Path('data/InsuranceData/part1_label/val/part_1.1/bang_ke-DB-25-177647_107.jpg')
+    jp = Path(ip).parent / (ip.stem + '-rop.json')
     im = cv2.imread(str(ip))
     with open(jp) as f:
         anno = json.load(f)
@@ -424,9 +425,9 @@ if __name__ == '__main__':
     # convert_CompHRDoc()
     # view_rop_data()
     # json2paddle()
-    # paddle2rop()
+    paddle2rop()
     # convert_ReadingBank()
     # draw_ReadingBank_data()
     # gen_ReadingBank_image()
-    convert_to_rop_format()
+    # convert_to_rop_format()
     # convert_to_paddle_format()
