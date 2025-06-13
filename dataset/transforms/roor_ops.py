@@ -7,128 +7,12 @@ from PIL import Image
 import numpy as np
 import torch
 from utils.utils import *
-from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerBase, ProcessorMixin, LayoutLMv3Tokenizer, LayoutLMv3Processor
-
-
-class LoadImageAndJson(ItemTransform):
-    def __init__(self, keep_keys):
-        super().__init__(keep_keys)
-    
-    def process(self, item, mode='val'):
-        item['image'] = cv2.imread(str(item['image_path']))
-        with open(item['json_path']) as f:
-            list_segments = json.load(f)
-        
-        # remove empty segment
-        new_list_segments = []
-        for segment in list_segments:
-            if segment['text'] != '':
-                new_list_segments.append(segment)
-
-        item['list_segments'] = new_list_segments
-        self.keep_keys(item)
-        return item
-    
-
-
-class ChunkAndShuffle(ItemTransform):
-    def __init__(self, keep_keys, processor_path: str, stride: int, lower_text: bool, normalize_text: bool,
-                 return_first_chunk: bool, shuffle_prob: float, seed_val: int):
-        super().__init__(keep_keys)
-        self.shuffle_prob = shuffle_prob
-        self.seed_val = seed_val
-        self.processor = LayoutLMv3Processor.from_pretrained(processor_path, apply_ocr=False)
-        self.tokenizer= self.processor.tokenizer
-        self.max_seq_len = self.tokenizer.model_max_length
-        self.stride = stride
-        self.lower_text = lower_text
-        self.normalize_text = normalize_text
-        self.return_first_chunk = return_first_chunk
-
-
-    def _chunk_segments(self, list_segments):
-        max_seq_len = self.max_seq_len - 4
-
-        texts = []
-        for segment in list_segments:
-            text = segment['text']
-            if self.lower_text:
-                text = text.lower()
-            if self.normalize_text:
-                text = unidecode.unidecode(text)
-            texts.append(text)
-        bboxes = [[0,0,0,0]] * len(texts)
-        enc_inp = self.tokenizer(texts, boxes=bboxes, truncation=False, padding=False, return_tensors='pt')
-        word_ids = enc_inp.word_ids(0)[1:-1]  # exclude the <cls> and <sep> token.
-
-        chunk_indexes = []
-        start_index, end_index = 0, 0
-        while end_index < len(word_ids):
-            end_index = start_index + max_seq_len - 1
-            chunk_indexes.append((start_index, min(end_index, len(word_ids)-1)))
-            start_index += self.stride
-
-        segment_chunks = []
-        for start_index, end_index in chunk_indexes:
-            start_segment_index = word_ids[start_index]
-            if start_index == 0 or word_ids[start_index-1] != start_segment_index:
-                pass
-            else:
-                start_segment_index += 1
-            end_segment_index = word_ids[end_index]
-            if end_index == len(word_ids) - 1 or word_ids[end_index+1] != end_segment_index:
-                pass
-            else:
-                end_segment_index -= 1
-
-            chunk = []
-            for index in range(start_segment_index, end_segment_index+1):
-                chunk.append(list_segments[index])
-            segment_chunks.append(chunk)
-
-            # chunk_texts = [unidecode.unidecode(segment['text']).lower() for segment in chunk]
-            # chunk_bboxes = [segment['p4_bb'] for segment in chunk]
-            # chunk_enc_inp = self.tokenizer(chunk_texts, boxes=chunk_bboxes, truncation=False, padding=False, return_tensors='pt')
-            # if chunk_enc_inp.input_ids.shape[1] > self.max_seq_len:
-            #     pdb.set_trace()
-            # # pdb.set_trace()
-        
-        return segment_chunks
-    
-
-
-    def process(self, item, mode='val'):
-        list_segments = item['list_segments']
-        im = item['image']
-        im_h, im_w = im.shape[:2]
-
-        # chunk
-        segment_chunks = self._chunk_segments(list_segments)
-        if mode != 'train':
-            return_first_chunk = self.return_first_chunk
-        else:
-            return_first_chunk = np.random.rand() < 0.65
-                
-        if return_first_chunk:
-            list_segments = segment_chunks[0]
-        else:
-            indexes = np.random.randint(0, len(segment_chunks))
-            list_segments = segment_chunks[indexes]
-
-        # shuffle
-        if np.random.rand() < self.shuffle_prob:
-            seed = None if mode == 'train' else self.seed_val
-            np.random.seed(seed)
-            np.random.shuffle(list_segments)
-
-        item['list_segments'] = list_segments
-        return item
-        
+from transformers import AutoProcessor, AutoTokenizer, PreTrainedTokenizerBase, ProcessorMixin, LayoutLMv3Tokenizer, LayoutLMv3Processor    
 
 
 class ROORInputEncoder(ItemTransform):
     def __init__(self, keep_keys, processor_path, max_seq_len: int, max_num_units: int, 
-                lower_text: bool, normalize_text: bool):
+                use_text: bool = True, use_image: bool = True, lower_text: bool = True, normalize_text: bool = True):
         super().__init__(keep_keys)
         self.processor = LayoutLMv3Processor.from_pretrained(processor_path, apply_ocr=False)
         self.tokenizer= self.processor.tokenizer
@@ -136,6 +20,8 @@ class ROORInputEncoder(ItemTransform):
         self.max_num_units = max_num_units
         self.SCALE_SIZE = 1000
         self.IMAGE_LEN = 14 ** 2 + 1 # num patches of layoutlmv3 + 1
+        self.use_text = use_text
+        self.use_image = use_image
         self.lower_text = lower_text
         self.normalize_text = normalize_text
 
@@ -203,7 +89,11 @@ class ROORInputEncoder(ItemTransform):
     def process(self, item, mode='val'):
         list_segments = item['list_segments']
         im = item['image']
-        im_h, im_w = im.shape[:2]
+        if im is None:
+            assert self.use_image == False
+            im_h, im_w = 1000, 1000
+        else:
+            im_h, im_w = im.shape[:2]
 
         # add cls and sep segments
         list_segments = self._add_cls_and_sep_segment(list_segments, (im_w, im_h))
@@ -214,23 +104,36 @@ class ROORInputEncoder(ItemTransform):
 
         segment_texts, norm_boxes = [], []
         for segment_info in list_segments:
-            text = segment_info['text']
-            if self.lower_text:
-                text = text.lower()
-            if self.normalize_text:
-                text = unidecode.unidecode(text)
-            segment_texts.append(text)
+            if self.use_text:
+                text = segment_info['text']
+                if self.lower_text:
+                    text = text.lower()
+                if self.normalize_text:
+                    text = unidecode.unidecode(text)
+                segment_texts.append(text)
+            else:
+                segment_texts.append(self.tokenizer.unk_token)
             norm_boxes.append(normalize_bbox(segment_info['p4_bb'], im_w, im_h))
 
-        enc_inp = self.processor(
-            im, segment_texts, boxes=norm_boxes,
-            truncation=True, padding="max_length", max_length=self.max_seq_len,
-            return_tensors="pt"
-        )
+        if self.use_image:
+            enc_inp = self.processor(
+                im, segment_texts, boxes=norm_boxes,
+                truncation=True, padding="max_length", max_length=self.max_seq_len,
+                return_tensors="pt"
+            )
+        else:
+            enc_inp = self.tokenizer(
+                segment_texts, boxes=norm_boxes,
+                truncation=True, padding="max_length", max_length=self.max_seq_len,
+                return_tensors="pt"
+            )
 
         # construct segment spans
         segment_spans = self._get_segment_spans(enc_inp.word_ids(0))
-        assert len(segment_spans) == len(list_segments)  # segment_spans and list_segments must be in the same order
+        try:
+            assert len(segment_spans) == len(list_segments)  # segment_spans and list_segments must be in the same order
+        except:
+            pdb.set_trace()
         # print(segment_spans)
         # pdb.set_trace()
 
@@ -258,14 +161,14 @@ class ROORInputEncoder(ItemTransform):
         unit_masks = torch.tensor(unit_masks, dtype=torch.int64)
 
         # add mask for image token
-        unit_masks = torch.cat(
-            (unit_masks, torch.zeros((self.max_num_units, self.IMAGE_LEN), dtype=torch.int64)), dim=1
-        )
+        if self.use_image:
+            unit_masks = torch.cat((unit_masks, torch.zeros((self.max_num_units, self.IMAGE_LEN), dtype=torch.int64)), dim=1)
 
         # squeeze
         for k, v in enc_inp.items():
             if isinstance(v, torch.Tensor):
                 enc_inp[k] = v.squeeze(0)
+        
         item.update(enc_inp)
         item.update({
             'grid_labels': grid_labels,

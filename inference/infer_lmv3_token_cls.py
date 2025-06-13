@@ -11,42 +11,45 @@ import cv2
 from itertools import permutations
 import json
 from utils.utils import *
+from utils.token_cls_utils import *
 from .utils import *
-from models.layoutlmv3_gp.modeling_layoutlmv3_gp import LayoutLMv3ForRORelation
-from dataset.transforms.roor_ops import *
-from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScore
+from models.layoutlmv3.layoutlmv3_token_cls import LayoutLMv3ForGroupTokenClassification
+from dataset.transforms.token_cls_ops import *
+from dataset.transforms.generic_ops import *
+from torchmetrics.text import BLEUScore
+from torchmetrics.classification import Accuracy
+from easydict import EasyDict
 
 
-class LayoutLMv3RORelationPredictor:
-    def __init__(self, ckpt_path, config, device, act='softmax'):
+class Predictor:
+    def __init__(self, ckpt_path, config: dict, device: str):
         super().__init__()
         self.device = device
         state_dict = self.parse_state_dict(ckpt_path)
-        self.model = LayoutLMv3ForRORelation.from_pretrained('pretrained/layoutlmv3-base-1024', gp_config=config.model.gp_config)
+        self.model = LayoutLMv3ForGroupTokenClassification.from_pretrained(
+            'microsoft/layoutlmv3-large',
+            visual_embed=config.common.use_image, num_labels=config.common.max_num_units
+        )
         self.model.load_state_dict(state_dict)
         print('Load state dict OK!')
-        self.model.to(device)
-        self.act = act  # activation function
-        self.edge_acc = EdgeRelationAccuracy().to(device)
-        self.sample_acc = TotalOrderAccuracy().to(device)
-        self.bleu4 = ROBleuScore(n_gram=4).to(device)
-        
+        self.model.eval().to(device)
+        self.bleu4 = BLEUScore().to(device)
+        self.sample_acc = Accuracy(task='binary').to(device)
+
     
+
     def _reset_metric(self):
-        self.edge_acc.reset()
-        self.sample_acc.reset()
         self.bleu4.reset()
+        self.sample_acc.reset()
 
 
     def compute_metric(self):
-        total_edge_acc = self.edge_acc.compute().cpu().item()
-        total_sample_acc = self.sample_acc.compute().cpu().item()
         total_bleu4 = self.bleu4.compute().cpu().item()
+        total_sample_acc = self.sample_acc.compute().cpu().item()
         self._reset_metric()
         return {
-            'edge_accuracy': round(total_edge_acc, 3),
-            'sample_accuracy': round(total_sample_acc, 3),
-            'bleu_score': round(total_bleu4, 3)
+            'bleu_score': round(total_bleu4, 3),
+            'sample_accuracy': round(total_sample_acc, 3)
         }
 
 
@@ -61,35 +64,25 @@ class LayoutLMv3RORelationPredictor:
     @torch.no_grad()
     def predict(self, inp):
         outputs = self.model(**inp)
-        raw_logits, loss = outputs.logits, outputs.loss
-        logits = raw_logits.squeeze(1).squeeze(0)  # (max_num_units, max_num_units)
-        num_units = inp['global_pointer_masks'][0].sum()
-        logits = logits[:num_units, :num_units]
-        if self.act == 'softmax':
-            probs = torch.softmax(logits, dim=1).cpu().numpy()  # shape (num_units + 2, num_units + 2)
-        elif self.act == 'sigmoid':
-            probs = torch.sigmoid(logits).cpu().numpy()
-        else:
-            raise ValueError(f'Unsupported activation function: {self.act}')
-        best_path, best_probs = find_best_path_with_expansion(probs)
-        
+        logits, loss = outputs.logits, outputs.loss
+        num_units = inp['num_units'][0]
+        logits = logits[0]
+        orders = parse_logits(logits, num_units)
+
         # update metrics
-        grid_labels = inp['grid_labels'].unsqueeze(1)
-        edge_acc = self.edge_acc(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
-        sample_acc = self.sample_acc(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
-        sample_bleu = self.bleu4(raw_logits, grid_labels, inp['global_pointer_masks']).cpu().item()
+        labels = inp['labels'][0][:num_units].cpu().numpy().tolist()
+        gt_str = ' '.join(list(map(str, labels)))
+        pred_str = ' '.join(list(map(str, orders)))
+        bleu_score = self.bleu4([pred_str], [[gt_str]]).cpu().item()
+        if bleu_score == 1:
+            acc = self.sample_acc(torch.tensor([1]), torch.tensor([1])).cpu().item()
+        else:
+            acc = self.sample_acc(torch.tensor([0]), torch.tensor([1])).cpu().item()
         metric = {
-            'edge_accuracy': round(edge_acc, 3),
-            'sample_accuracy': round(sample_acc, 3),
-            'bleu_score': round(sample_bleu, 3)
+            'bleu_score': round(bleu_score, 3),
+            'sample_acc': round(acc, 3)
         }
-        
-        # # debug
-        # for i in range(probs.shape[0]-1):
-        #     print(probs[i][i+1])
-        # pdb.set_trace()
-        
-        return best_path, metric
+        return orders, metric
     
 
 
@@ -97,7 +90,7 @@ def main(args):
     from omegaconf import OmegaConf
 
     config = OmegaConf.load(Path(args.ckpt_path).parent / 'config.yaml')
-    predictor = LayoutLMv3RORelationPredictor(args.ckpt_path, config, args.device, args.act)
+    predictor = Predictor(args.ckpt_path, config, args.device)
 
     # get transform config
     transform_config = {}
@@ -106,30 +99,28 @@ def main(args):
         transform_config[class_name] = trans['init_args']
 
     # override transform config
-    transform_config['ChunkAndShuffle']['shuffle_prob'] = args.shuffle_prob
-    transform_config['ChunkAndShuffle']['seed_val'] = args.seed
-    transform_config['ROORInputEncoder']['keep_keys'].append('list_segments')
+    transform_config['ShuffleInput']['shuffle_prob'] = args.shuffle_prob
+    transform_config['TokenClassificationInputEncoder']['keep_keys'].append('list_segments')
 
     # load transforms
     load_image_and_json = LoadImageAndJson(**transform_config['LoadImageAndJson'])
-    chunk_and_shuffle = ChunkAndShuffle(**transform_config['ChunkAndShuffle'])
-    input_encoder = ROORInputEncoder(**transform_config['ROORInputEncoder'])
+    chunk_input = ChunkInput(**transform_config['ChunkInput'])
+    shuffle_input = ShuffleInput(**transform_config['ShuffleInput'])
+    input_encoder = TokenClassificationInputEncoder(**transform_config['TokenClassificationInputEncoder'])
 
     os.makedirs(args.out_dir, exist_ok=True)
     result = {
         'files': {},
         'total_metrics': {}
     }
-    ipaths = [ip for ip in Path(args.src_dir).glob('*') if is_image(ip)]
-    ipaths.sort()
-    for ip in ipaths:
+    jpaths = [fp for fp in Path(args.src_dir).glob('*.json')]
+    jpaths.sort()
+    for jp in jpaths:
         # if '00000823-1' not in ip.name:
         #     continue
-        jp = ip.with_suffix('.json')
-        if not jp.exists():
-            continue
+        ip = get_img_fp_from_json_fp(jp)
 
-        print(f'\n----------- Processing {ip} -----------')
+        print(f'\n----------- Processing {jp} -----------')
         item = {'image_path': ip, 'json_path': jp}
         
         item = load_image_and_json.process(item)
@@ -139,7 +130,8 @@ def main(args):
             print(f'{jp} has no texts inside! Skipping ...')
             continue
 
-        item = chunk_and_shuffle.process(item)
+        item = chunk_input.process(item)
+        item = shuffle_input.process(item)
         list_segments = item['list_segments']
         
         item = input_encoder.process(item)
@@ -149,14 +141,15 @@ def main(args):
                 item[k] = v.unsqueeze(0).to(args.device)
         sorted_indexes, metrics = predictor.predict(item)
         print(f'METRICS: {metrics}')
-        result['files'][str(ip)] = metrics
+        result['files'][str(jp)] = metrics
         save_path = os.path.join(args.out_dir, 'drawed', ip.name)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        visualize(im, list_segments, sorted_indexes, save_path, scale=args.scale)
+        if im is not None:
+            visualize_inference_result(im, list_segments, sorted_indexes, save_path, scale=args.scale)
 
-        # debug
-        for i in sorted_indexes:
-            print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
+        # # debug
+        # for i in sorted_indexes:
+        #     print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
     
     # final metrics
     total_metrics = predictor.compute_metric()
@@ -176,7 +169,6 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, required=True)
     parser.add_argument('--src_dir', type=str, required=True)
     parser.add_argument('--out_dir', type=str, required=True)
-    parser.add_argument('--act', type=str, default='softmax')
     parser.add_argument('--shuffle_prob', type=float, default=1)
     parser.add_argument('--seed', type=int, default=42)
     parser.add_argument('--scale', type=float, default=1)

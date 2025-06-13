@@ -1,12 +1,12 @@
 from torch.utils.data import Dataset, DataLoader
-from .transforms.roor_ops import *
+from .transforms.token_cls_ops import *
 from .transforms.generic_ops import *
 from .transforms.base import ItemTransform
 from typing_extensions import List, Dict, Literal, Tuple, Union, Any
 import lightning.pytorch as pl
 
 
-class RORelationDataset(Dataset):
+class ROTokenClassificationDataset(Dataset):
     def __init__(
         self,
         mode: Literal['train', 'val', 'test'],
@@ -17,53 +17,26 @@ class RORelationDataset(Dataset):
     ):
         super().__init__()
         self.mode = mode
-        self.image_paths, self.json_paths = RORelationDataset.prepare_data(data_dirs)
+        self.image_paths, self.json_paths = ROTokenClassificationDataset.prepare_data(data_dirs)
         self.processor_path = processor_path
         self.transform_ops = transform_ops
         self.augment_ops = augment_ops
 
 
-    # @staticmethod
-    # def prepare_data(data_dirs):
-    #     ipaths, jpaths = [], []
-    #     cnt = 0
-    #     for data_dir in data_dirs:
-    #         for ip in Path(data_dir).glob('*'):
-    #             if not is_image(ip):
-    #                 continue
-    #             jp = ip.with_suffix('.json')
-    #             with open(jp) as f:
-    #                 list_segments = json.load(f)
-    #             if len(list_segments) == 0:
-    #                 continue
-    #             ipaths.append(ip)
-    #             jpaths.append(jp)
-
-    #             cnt += 1
-    #             if cnt == 100:
-    #                 break
-    #         break
-    #     return ipaths, jpaths
-    
-
     @staticmethod
     def prepare_data(data_dirs):
         ipaths, jpaths = [], []
-        cnt = 0
         for data_dir in data_dirs:
-            for jp in Path(data_dir).glob('*.json'):
+            for ip in Path(data_dir).glob('*'):
+                if not is_image(ip):
+                    continue
+                jp = ip.with_suffix('.json')
                 with open(jp) as f:
                     list_segments = json.load(f)
                 if len(list_segments) == 0:
                     continue
-                ip = get_img_fp_from_json_fp(jp)
-                ipaths.append(ip if ip is not None else jp.with_suffix('.jpg'))
+                ipaths.append(ip)
                 jpaths.append(jp)
-
-            #     cnt += 1
-            #     if cnt == 1000:
-            #         break
-            # break
         
         return ipaths, jpaths
     
@@ -86,7 +59,7 @@ class RORelationDataset(Dataset):
     
 
 
-class RORelationDataModule(pl.LightningDataModule):
+class ROTokenClassificationDataModule(pl.LightningDataModule):
     def __init__(self, 
         data_dirs, 
         processor_path: str, 
@@ -111,13 +84,13 @@ class RORelationDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         if stage in ['fit', 'validate']:
-            self.train_ds = RORelationDataset(
+            self.train_ds = ROTokenClassificationDataset(
                 mode='train',
                 data_dirs=self.data_dirs['train'],
                 **self.ds_config
             )
 
-            self.val_ds = RORelationDataset(
+            self.val_ds = ROTokenClassificationDataset(
                 mode='val',
                 data_dirs=self.data_dirs['val'],
                 **self.ds_config

@@ -10,6 +10,12 @@ from shapely.geometry import Polygon
 import unidecode
 import os
 
+
+def is_image(fp):
+    fp = str(fp)
+    return fp.endswith('.jpg') or fp.endswith('.png') or fp.endswith('.jpeg') or fp.endswith('.JPG') or fp.endswith('.JPEG') or fp.endswith('.PNG')
+
+
 def parse_xml(xml):
     root = ET.parse(xml).getroot()
     objs = root.findall('object')
@@ -246,3 +252,160 @@ def iou_poly(poly1, poly2):
     iou = intersect / union
     
     return ratio1, ratio2, iou
+
+
+def sort_and_merge_box(bbs, texts, d_thres):
+    """
+        bbs: List of (xmin, ymin, xmax, ymax) boxes
+        texts: List of words corresponding to bbs
+        d_thres: height distance threshold between 2 consecutive lines.
+    """
+    bbs_clusters = [(b, t) for b, t in zip(bbs, texts)]
+    bbs_clusters.sort(key=lambda x: x[0][0])
+
+    # group cluster 1st time
+    clusters, y_min, cluster_texts = [], [], []
+    for tgt_node, text  in bbs_clusters:
+        if len (clusters) == 0:
+            clusters.append([tgt_node])
+            cluster_texts.append([text])
+            y_min.append(tgt_node[1])
+            continue
+        matched = None
+        for idx, clt in enumerate(clusters):
+            src_node = clt[-1]
+            overlap_y = ((src_node[3] - src_node[1]) + (tgt_node[3] - tgt_node[1])) - (max(src_node[3], tgt_node[3]) - min(src_node[1], tgt_node[1]))
+            overlap_x = ((src_node[2] - src_node[0]) + (tgt_node[2] - tgt_node[0])) - (max(src_node[2], tgt_node[2]) - min(src_node[0], tgt_node[0]))
+            distance = tgt_node[0] - src_node[2]
+            if overlap_y > 0.8*min(src_node[3] - src_node[1], tgt_node[3] - tgt_node[1]) and overlap_x < 0.6*min(src_node[2] - src_node[0], tgt_node[2] - tgt_node[0]):
+                if matched is None or distance < matched[1]:
+                    matched = (idx, distance)
+        if matched is None:
+            clusters.append([tgt_node])
+            cluster_texts.append([text])
+            y_min.append(tgt_node[1])
+        else:
+            idx = matched[0]
+            clusters[idx].append(tgt_node)
+            cluster_texts[idx].append(text)
+    zip_clusters = list(zip(clusters, y_min, cluster_texts))
+    zip_clusters.sort(key=lambda x: x[1])
+
+    # break lines
+    page_text_lines = []
+    page_bb_lines = []
+    for bb_cluster in zip_clusters:
+        bbs, _, texts = bb_cluster
+        text_lines = []
+        bb_lines = []
+        text_line = []
+        bb_line = []
+        for bb, text in zip(bbs, texts):
+            if len(text_line) == 0:
+                text_line.append(text)
+                bb_line.append(bb)
+            else:
+                if bb[0] - bb_line[-1][2] > d_thres:
+                    text_lines.append(text_line)
+                    bb_lines.append(bb_line)
+                    text_line = [text]
+                    bb_line = [bb]
+                else:
+                    text_line.append(text)
+                    bb_line.append(bb)
+        if len(text_line) != 0:
+            text_lines.append(text_line)
+            bb_lines.append(bb_line)
+        for text_line, bb_line in zip(text_lines, bb_lines):
+            bb_line = np.array(bb_line)
+            xmin = np.min(bb_line[:, 0])
+            ymin = np.min(bb_line[:, 1])
+            xmax = np.max(bb_line[:, 2])
+            ymax = np.max(bb_line[:, 3])
+            page_text_lines.append(' '.join(text_line))
+            page_bb_lines.append([xmin, ymin, xmax, ymax])
+    return page_text_lines, page_bb_lines
+
+def get_img_fp_from_json_fp(json_fp):
+    if isinstance(json_fp, str):
+        json_fp = Path(json_fp)
+    ls_ext = ['.jpg', '.png', '.jpeg', '.JPG', '.PNG', '.JPEG']
+    for ext in ls_ext:
+        img_fp = json_fp.with_suffix(ext)
+        if img_fp.exists():
+            return img_fp
+    return None
+
+def order_points(pts):
+    # initialzie a list of coordinates that will be ordered
+    # such that the first entry in the list is the top-left,
+    # the second entry is the top-right, the third is the
+    # bottom-right, and the fourth is the bottom-left
+    rect = np.zeros((4, 2), dtype = "float32")
+    # the top-left point will have the smallest sum, whereas
+    # the bottom-right point will have the largest sum
+    s = pts.sum(axis = 1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    # now, compute the difference between the points, the
+    # top-right point will have the smallest difference,
+    # whereas the bottom-left will have the largest difference
+    diff = np.diff(pts, axis = 1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    # return the ordered coordinates
+    return rect
+
+def four_point_transform(image, pts):
+    # obtain a consistent order of the points and unpack them
+    # individually
+    rect = order_points(pts)
+    (tl, tr, br, bl) = rect
+    # compute the width of the new image, which will be the
+    # maximum distance between bottom-right and bottom-left
+    # x-coordiates or the top-right and top-left x-coordinates
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+    # compute the height of the new image, which will be the
+    # maximum distance between the top-right and bottom-right
+    # y-coordinates or the top-left and bottom-left y-coordinates
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+    # now that we have the dimensions of the new image, construct
+    # the set of destination points to obtain a "birds eye view",
+    # (i.e. top-down view) of the image, again specifying points
+    # in the top-left, top-right, bottom-right, and bottom-left
+    # order
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype = "float32")
+    # compute the perspective transform matrix and then apply it
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+    return warped
+
+def write_to_xml(boxes, labels, size, xml_path):
+    w, h = size
+    root = ET.Element('annotations')
+    filename = ET.SubElement(root, 'filename')
+    filename.text = Path(xml_path).stem + '.jpg'
+    size = ET.SubElement(root, 'size')
+    width = ET.SubElement(size, 'width')
+    width.text = str(w)
+    height = ET.SubElement(size, 'height')
+    height.text = str(h)
+    depth = ET.SubElement(size, 'depth')
+    depth.text = '3'
+    for box, label in zip(boxes, labels):
+        obj = ET.SubElement(root, 'object')
+        name = ET.SubElement(obj, 'name')
+        name.text = label
+        bndbox = ET.SubElement(obj, 'bndbox')
+        xmin, ymin = ET.SubElement(bndbox, 'xmin'), ET.SubElement(bndbox, 'ymin')
+        xmax, ymax = ET.SubElement(bndbox, 'xmax'), ET.SubElement(bndbox, 'ymax')
+        xmin.text, ymin.text, xmax.text, ymax.text = map(str, box)
+    ET.ElementTree(root).write(xml_path)

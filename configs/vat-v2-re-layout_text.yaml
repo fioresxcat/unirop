@@ -1,0 +1,158 @@
+seed_everything: 42
+common:
+  max_seq_len: 1024
+  max_num_units: 128
+  lower_text: true
+  normalize_text: true
+  use_text: True
+  use_image: False
+
+data:
+  data_dirs:
+    train:
+      - data/VAT_epdf_vng/images/train
+      - data/VAT_scan_local_images/images/train
+      - data/VAT_acb_captured/images/train
+    val:
+      - data/VAT_epdf_vng/images/val
+      - data/VAT_scan_local_images/images/val
+      - data/VAT_acb_captured/images/val
+
+  processor_path: ${model.pretrained_path}
+  augment_ops: []
+  transform_ops:
+    - class_path: LoadImageAndJson
+      init_args:
+        keep_keys: ['image', 'list_segments']
+
+    - class_path: ChunkInput
+      init_args:
+        keep_keys: ['image', 'list_segments']
+        processor_path: ${model.pretrained_path}
+        use_text: ${common.use_text}
+        stride: 256
+        max_seq_len: ${common.max_seq_len}  # max token length for a document
+        max_num_units: ${common.max_num_units}  # max text lines for a document
+        lower_text: ${common.lower_text}
+        normalize_text: ${common.normalize_text}
+        return_first_chunk_prob: 0.4
+
+    - class_path: ShuffleInput
+      init_args:
+        keep_keys: ['image', 'list_segments']
+        shuffle_prob: 0.5
+
+    - class_path: ROORInputEncoder
+      init_args:
+        keep_keys: ['grid_labels', 'unit_masks', 'num_units', 'global_pointer_masks', 'input_ids', 'attention_mask', 'bbox', 'pixel_values']
+        processor_path: ${model.pretrained_path}
+        max_seq_len: ${common.max_seq_len}  # max token length for a document
+        max_num_units: ${common.max_num_units}  # max text lines for a document
+        use_text: ${common.use_text}
+        use_image: ${common.use_image}
+        lower_text: ${common.lower_text}
+        normalize_text: ${common.normalize_text}
+
+  num_workers: 31
+  batch_size: 12
+
+
+model:
+  pretrained_path: pretrained/layoutlmv3_base_1024-layout_and_text-re
+  gp_config:
+    gp_heads: 1
+    head_size: 128
+    num_dense: 1
+    RoPE: false
+    tril_mask: false
+  criterion: softmax_ce_loss
+  optimizer_config:
+    learning_rate: 5.0e-5
+    weight_decay: 1.0e-2
+    class_weight: null
+    reset_optimizer: false
+    n_warmup_epochs: 5
+    lr_scheduler:
+      name: CosineAnnealingLR
+      frequency: 1
+      interval: epoch
+      CosineAnnealingLR:
+        T_max: ${trainer.max_epochs}
+        eta_min: 1.0e-6
+        last_epoch: -1
+        verbose: False
+      ReduceLROnPlateau:
+        factor: 0.2
+        patience: 10
+      ExponentialLR:
+        gamma: 0.97
+
+trainer:
+  logger:
+    class_path: TensorBoardLogger
+    init_args:
+      save_dir: ckpt/VAT/exp20-lmv3_base_1024-layout_text
+      name: ''
+      version: ''
+
+  max_epochs: 100
+  min_epochs: 30
+  accelerator: cuda
+  devices: auto
+  strategy: auto
+  precision: bf16-mixed
+  accumulate_grad_batches: 5
+  fast_dev_run: false
+  overfit_batches: 0
+  sync_batchnorm: False
+  log_every_n_steps: 1
+
+  callbacks:
+    - class_path: ModelCheckpoint
+      init_args:
+        dirpath: ${trainer.logger.init_args.save_dir}
+        filename: '{epoch}-{train_loss:.3f}-{train_edge_acc:.3f}-{train_sample_acc:.3f}-{val_loss:.3f}-{val_edge_acc:.3f}-{val_sample_acc:.3f}'
+        monitor: val_edge_acc
+        mode: max
+        save_top_k: 2
+        every_n_epochs: 1
+        auto_insert_metric_name: true
+        save_last: false
+
+    - class_path: RichProgressBar
+      init_args:
+        leave: true
+
+    - class_path: LearningRateMonitor
+      init_args:
+        logging_interval: 'epoch'
+
+  num_nodes: 1
+  max_steps: -1
+  min_steps: null
+  max_time: null
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  limit_predict_batches: null
+  val_check_interval: null
+  check_val_every_n_epoch: 1
+  num_sanity_val_steps: -1
+  enable_checkpointing: null
+  enable_progress_bar: null
+  enable_model_summary: null
+  gradient_clip_val: null
+  deterministic: null
+  benchmark: null
+  inference_mode: true
+  use_distributed_sampler: true
+  profiler: null
+  detect_anomaly: false
+  barebones: false
+  plugins: null
+  reload_dataloaders_every_n_epochs: 0
+  default_root_dir: null
+
+# save_config_callback: null
+save_config_overwrite: false
+ckpt_path: null

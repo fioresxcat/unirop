@@ -79,7 +79,7 @@ class TotalOrderAccuracy(Metric):
     
 
 
-class ROBleuScore(BLEUScore):
+class REBleuScore(BLEUScore):
     def update(self, y_pred: Tensor, y_true: Tensor, mask: Tensor) -> None:
         y_true, y_pred = y_true.squeeze(1), y_pred.squeeze(1)
         b, seq_len, seq_len = y_pred.shape

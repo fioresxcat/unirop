@@ -97,7 +97,7 @@ class LayoutLMv3TwoHeadsForRORelation(LayoutLMv3PreTrainedModel):
         return ModelOutput(logits1=logits1, logits2=logits2, loss1=loss1, loss2=loss2)
     
 
-from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScore
+from metrics.ro_relation_metrics import EdgeRelationAccuracy, TotalOrderAccuracy, REBleuScore
 
 class LayoutLMv3TwoHeadsForRORelationModule(pl.LightningModule):
     def __init__(
@@ -121,8 +121,8 @@ class LayoutLMv3TwoHeadsForRORelationModule(pl.LightningModule):
         self.train_sample_acc = TotalOrderAccuracy()
         self.val_sample_acc = TotalOrderAccuracy()
 
-        self.train_bleu4 = ROBleuScore(n_gram=4)
-        self.val_bleu4 = ROBleuScore(n_gram=4)
+        self.train_bleu4 = REBleuScore(n_gram=4)
+        self.val_bleu4 = REBleuScore(n_gram=4)
 
         self.train_prev_edge_acc = EdgeRelationAccuracy()
         self.val_prev_edge_acc = EdgeRelationAccuracy()
@@ -130,8 +130,8 @@ class LayoutLMv3TwoHeadsForRORelationModule(pl.LightningModule):
         self.train_prev_sample_acc = TotalOrderAccuracy()
         self.val_prev_sample_acc = TotalOrderAccuracy()
 
-        self.train_prev_bleu4 = ROBleuScore(n_gram=4)
-        self.val_prev_bleu4 = ROBleuScore(n_gram=4)
+        self.train_prev_bleu4 = REBleuScore(n_gram=4)
+        self.val_prev_bleu4 = REBleuScore(n_gram=4)
 
 
     def step(self, batch, batch_idx, split):

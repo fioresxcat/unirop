@@ -12,9 +12,10 @@ from itertools import permutations
 import json
 from utils.utils import *
 from .utils import *
-from models.layoutlmv3_gp.modeling_layoutlmv3_gp_two_heads import LayoutLMv3TwoHeadsForRORelation
+from models.layoutlmv3.layoutlmv3_gp_two_heads import LayoutLMv3TwoHeadsForRORelation
 from dataset.transforms.roor_ops import *
-from metrics.metrics import EdgeRelationAccuracy, TotalOrderAccuracy, ROBleuScore
+from metrics.ro_relation_metrics import EdgeRelationAccuracy, TotalOrderAccuracy, REBleuScore
+from inference.infer_lmv3_re import find_best_path_with_expansion
 
 
 class LayoutLMv3RORelationPredictor:
@@ -32,7 +33,7 @@ class LayoutLMv3RORelationPredictor:
 
         self.edge_acc = EdgeRelationAccuracy().to(device)
         self.sample_acc = TotalOrderAccuracy().to(device)
-        self.bleu4 = ROBleuScore(n_gram=4).to(device)
+        self.bleu4 = REBleuScore(n_gram=4).to(device)
         
     
     def _reset_metric(self):
@@ -153,11 +154,11 @@ def main(args):
         result['files'][str(ip)] = metrics
         save_path = os.path.join(args.out_dir, 'drawed', ip.name)
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
-        visualize(im, list_segments, sorted_indexes, save_path, scale=args.scale)
+        visualize_inference_result(im, list_segments, sorted_indexes, save_path, scale=args.scale)
 
-        # debug
-        for i in sorted_indexes:
-            print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
+        # # debug
+        # for i in sorted_indexes:
+        #     print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
     
     # final metrics
     total_metrics = predictor.compute_metric()
