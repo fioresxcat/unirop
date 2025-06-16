@@ -208,9 +208,10 @@ def main(args):
         # if cnt >= 10:
         #     break
 
-        # # debug
-        # for i in sorted_indexes:
-        #     print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
+        # debug
+        for i in sorted_indexes:
+            print(list_segments[i]['text'], '-', list_segments[i]['p4_bb'])
+        # pdb.set_trace()
     
     # final metrics
     total_metrics = predictor.compute_metric()

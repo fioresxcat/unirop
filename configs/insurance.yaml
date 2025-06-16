@@ -52,7 +52,7 @@ data:
         normalize_text: ${common.normalize_text}
 
   num_workers: 31
-  batch_size: 8
+  batch_size: 16
 
 
 model:
@@ -80,7 +80,7 @@ model:
         T_max: ${trainer.max_epochs}
         eta_min: 1.0e-6
         last_epoch: -1
-        verbose: False
+        # verbose: False
       ReduceLROnPlateau:
         factor: 0.2
         patience: 10
@@ -117,7 +117,7 @@ trainer:
         save_top_k: 2
         every_n_epochs: 1
         auto_insert_metric_name: true
-        save_last: false
+        save_last: true
 
     - class_path: RichProgressBar
       init_args:
